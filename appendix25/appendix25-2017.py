@@ -1,21 +1,35 @@
 """
-Appendix 25 only: Delinquency Dispositions by Race and Ethnicity (PA Juvenile Court Annual Report)
+PA Juvenile Court Annual Report 2017
+Appendix 25: Delinquency Dispositions by Race and Ethnicity
 
-Output: one row per county with
-    county, year, n_white, n_black, n_hispanic, n_other, n_unknown, dispositions
-(White and Black are non-Hispanic, as in the report.)
-"TOTAL" in the report equals the county's total dispositions.
-Note: these counts do not include disposition review / placement review hearings.
+This data set contains one row per county with COUNTY, TOTAL DISPOSITIONS, WHITE NON-HISPANIC, BLACK NON-HISPANIC,
+HISPANIC, OTHER, UNKNOWN. We create a DataFrame and CSV with county, year, n_white, n_black, n_hispanic, n_other, 
+n_unknown, dispositions.
+
+The dispositions do not include dispositions resulting from review / placement review.
 """
+
+# Import the libraries we need for finding text patterns, reading PDF text, and building DataFrames
+
 import re
 import pdfplumber
 import pandas as pd
 
+# We create variables that are used in the code because the process of extracting the data is the same 
+# for each Appendix 25 table in each year. Adding variables allows for simple adaptation of the code for
+# each year. YEAR is the year the Juvenile Court Annual Report was published and represents the year 
+# that the dispositions data is from. 
+
 YEAR = 2017
 PDF_PATH = f"PDFs/{YEAR}_Juvenile_Court_Annual_Report.pdf"
-HEADER = "COUNTY TOTAL DISPOSITIONS WHITE NON-HISPANIC BLACK NON-HISPANIC HISPANIC OTHER UNKNOWN"  # both pages
+HEADER = "COUNTY TOTAL DISPOSITIONS WHITE NON-HISPANIC BLACK NON-HISPANIC HISPANIC OTHER UNKNOWN" 
 
-# 1. Find the pages. Appendix 25 is TWO pages, both with the "Appendix 25" heading and the header line.
+# We use a list comprehension to create a list of pairs of page numbers and associated text. We then use 
+# another list comprehension to find the pages that contain the table header - "County Total Dispositions White
+# Non-Hispanic Black Non-Hispanic Hispanic Other Unknown" and a line that only states "Appendix 25." We used an assert 
+# to check that two pages were selected, because we can see in the PDF that the data table spans over two pages, and we 
+# wanted to ensure that we correctly filtered the Table of Contents.
+
 with pdfplumber.open(PDF_PATH) as pdf:
     pages = [(i, p.extract_text() or "") for i, p in enumerate(pdf.pages)]
 table_pages = [(i, t) for i, t in pages
@@ -23,9 +37,15 @@ table_pages = [(i, t) for i, t in pages
 print("Pages used:", [i + 1 for i, _ in table_pages])
 assert len(table_pages) == 2, f"expected 2 Appendix 25 pages, found {len(table_pages)}"
 
-# 2. Each data row is a county name followed by exactly 6 numbers (commas allowed):
-#    "ADAMS 170 116 20 32 2 0"  ->  total, white, black, hispanic, other, unknown
-#    The "% OF TOTAL" row has % signs, so it does not match and is skipped.
+# We then take the page text, which is laid out with a name and four associated values with one county per line, 
+# and use the re library to identify this text pattern. The bottom two lines from the PDF are "TOTAL" and "% OF TOTAL," 
+# and the text pattern excludes % OF TOTAL line because it begins with percent sign, not a letter, so doesn't match the 
+# pattern. We use nested for loops to create the rows for the DataFrame by splitting the page text into lines, 
+# identifying the county and its associated data values in each line, and then placing the county's information in a 
+# list and add that list to the rows list. 
+
+# We convert the values to integers.  
+
 row_re = re.compile(r"^([A-Z][A-Z ]+?)\s+((?:[\d,]+\s+){5}[\d,]+)$")
 
 rows = []
@@ -36,18 +56,24 @@ for _, text in table_pages:
             nums = [int(x.replace(",", "")) for x in m.group(2).split()]
             rows.append([m.group(1)] + nums)
 
+# We then create a DataFrame with the list of rows and the column names. 
+
 race = pd.DataFrame(rows, columns=["county", "dispositions", "n_white", "n_black",
                                    "n_hispanic", "n_other", "n_unknown"])
 
-# 3. Pull out the report's TOTAL row so we can check our numbers against it
+# We then removed the TOTAL row from the DataFrame for later validation purposes and added a year column for later 
+# joining purposes. We also reorder the columns. 
+
 total_row = race[race["county"] == "TOTAL"]
 race = race[race["county"] != "TOTAL"].reset_index(drop=True)
 cat_cols = ["n_white", "n_black", "n_hispanic", "n_other", "n_unknown"]
 race = race[["county"] + cat_cols + ["dispositions"]]
 race.insert(1, "year", YEAR)
 
-# 4. Checks: 67 counties, no duplicates, categories add up to the total,
-#    and the county columns add up to the report's statewide TOTAL row
+# We then validated the number of county rows, that there were no duplicate counties, that each county's race
+# and ethniicty types sum to the total value for that county, and that all the counties summed to the total values for 
+# the state.  
+
 count_cols = cat_cols + ["dispositions"]
 assert len(race) == 67, f"found {len(race)} counties"
 assert race["county"].is_unique, "duplicate county"
@@ -55,6 +81,8 @@ assert (race[cat_cols].sum(axis=1) == race["dispositions"]).all(), "categories d
 assert (race[count_cols].sum().values
         == total_row[count_cols].values[0]).all(), "county sums differ from TOTAL row"
 print("All checks passed")
+
+# We then convert the DataFrame to a CSV file, and exclude the index column. 
 
 race.to_csv(f"pa_race_ethnicity_{YEAR}.csv", index=False)
 print(race.head())

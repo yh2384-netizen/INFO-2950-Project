@@ -37,10 +37,11 @@ print("Pages used:", [i + 1 for i, _ in table_pages])
 assert len(table_pages) == 2, f"expected 2 Appendix 18 pages, found {len(table_pages)}"
 
 # We then take the page text, which is laid out with a name and 5 associated values with one
-# county per line, (the bottom two lines are "TOTAL" and "% TOTAL") and use the re library to identify this text 
-# pattern. The text pattern excludes % TOTAL because of the character in its name. We use nested for loops to create 
-# the rows for the DataFrame by separating each line, identifying the county and its associated data values 
-# in each line, and then placing the county's information in a list and add that list to rows list. 
+# county per line and use the re library to identify this text pattern. The bottom two lines from the PDF are "TOTAL"
+# and "% OF TOTAL," and the text pattern excludes % OF TOTAL because it begins with percent sign, not a letter, so doesn't match the 
+# pattern. We use nested for loops to create the rows for the DataFrame by separating each line, identifying the county 
+# and its associated data values in each line, and then placing the county's information in a list and add that list to 
+# rows list. 
 
 # We convert the values to integers. 
 
