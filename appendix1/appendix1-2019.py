@@ -1,22 +1,44 @@
 """
-Appendix 1 only: County Class and Population (PA Juvenile Court Annual Report)
+PA Juvenile Court Annual Report 2020
+To be used for connection to 2019 data 
+Appendix 1: County Class and Population
 
-Output: one row per county with
-    county, year, county_class, total_pop, juv_pop (ages 10-17)
-Same style as the placements / recidivism cells in the Phase 2 notebook.
+This data set contains one row per county with Class, Total Population, and Juvenile Population 10-17 year. We create
+a DataFrame and CSV with county, year, county_class, total_pop, juv_pop. 
+
+The PA Juvenile Court Judge's Commission created Appendix 1 from the "Bridged-Race Population Estimates" from 
+the Centers for Disease Control and Prevention. In 2019, when the "Juvenile Court Annual Report" was published, 
+the 2019 "Bridged-Race Population Estimates" had not yet been released, so in the 2019 "Juvenile Court Annual Report" 
+the PA population estimates are from the 2018 "Bridged-Race Population Estimates" report. 
+
+Since we have the benefit of using the data in the future, we combatted this issue by using the 2020 "Juvenile Court 
+Annual Report" to get the 2019 PA population estimate from the 2019 "Bridged-Race Population Estimates" report. 
+
 """
+
+# Import the libraries we need for finding text patterns, reading PDF text, and building DataFrames
 
 import re
 import pdfplumber
 import pandas as pd
+
+# We create variables that are used in the code because the process of extracting the data is the same 
+# for each Appendix 1 table in each year. Adding variables allows for simple adaptation of the code for
+# each year. YEAR_PUBLISHED is the year the Juvenile Court Annual Report was published and represents the year 
+# that the population is estimated for and YEAR_ESTIMATED represents the year that the population estimates 
+# were published from the CDC.
 
 YEAR_PUBLISHED = 2020
 YEAR_ESTIMATED = 2019
 PDF_PATH = f"PDFs/{YEAR_PUBLISHED}_Juvenile_Court_Annual_Report.pdf"
 TITLE = "County Class and Population"
 
-# 1. Find the page. Appendix 1 is a single page, identified by its title text.
-#    (We also require the "Appendix 1" heading so we don't match a table of contents.)
+# We use a list comprehension to create a list of pairs of page numbers and associated text. We then use 
+# another list comphrehension to find the pages that contain the table title "County Class and Population" and a 
+# line that only states "Appendix 1." We used an assert to check that only the one page was selected, because
+# we can see in the PDF that the data table is only one page long, and we wanted to ensure that we did not 
+# accidentally select the Table of Contents.
+
 with pdfplumber.open(PDF_PATH) as pdf:
     pages = [(i, p.extract_text() or "") for i, p in enumerate(pdf.pages)]
 hits = [(i, t) for i, t in pages
@@ -25,10 +47,11 @@ assert len(hits) == 1, f"expected 1 Appendix 1 page, found {len(hits)}"
 page_no, text = hits[0]
 print("Page used:", page_no + 1)
 
-# 2. Each text line holds THREE counties side by side, e.g.
-#    "PHILADELPHIA 1 1,584,138 141,485 MONROE 4 169,507 17,082 JEFFERSON 6 43,641 4,185"
-#    A county block = NAME  CLASS  TOTAL_POP  JUVENILE_POP
-#    CLASS is a digit, sometimes followed by A (e.g. "2A").
+# We then take the page text, which is laid out in the name, class, total pop, and juvenile pop format with 3 
+# counties per line, and use the re library to identify this text pattern. We use nested for loops to create the 
+# rows for the DataFrame by separating each line, identifying the 3 counties and their associated data values 
+# in each line, and then placing each county's information in a list and add that list to rows list. 
+
 block_re = re.compile(r"([A-Z][A-Z ]*?)\s+(\d[A]?)\s+([\d,]+)\s+([\d,]+)")
 
 rows = []
@@ -38,16 +61,24 @@ for line in text.splitlines():
                      int(total_pop.replace(",", "")),
                      int(juv_pop.replace(",", ""))])
 
+# We then create a DataFrame with the list of rows and the column names. We add a year column for later joining
+# purposes and sort the DataFrame alphabetically by county. 
+
 pop = pd.DataFrame(rows, columns=["county", "county_class", "total_pop", "juv_pop"])
 pop.insert(1, "year", YEAR_ESTIMATED)
 pop = pop.sort_values("county").reset_index(drop=True)   # the page lists counties by class, not A-Z
 
-# 3. Checks: 67 counties, no duplicates, sensible values
+# We then perform checks to make sure the data was extracted correctly. We check that that there are 67 total counties, 
+# all counties are unique, the juvenile population value is smaller than the total population value for each county, 
+# and all of the county classes are a valid county class. 
+
 assert len(pop) == 67, f"found {len(pop)} counties"
 assert pop["county"].is_unique, "duplicate county"
 assert (pop["juv_pop"] < pop["total_pop"]).all()
 assert pop["county_class"].isin(["1", "2", "2A", "3", "4", "5", "6", "7", "8"]).all()
 print("All checks passed")
+
+# We then convert the DataFrame to a CSV file, and exclude the index column. 
 
 pop.to_csv(f"pa_population_{YEAR_ESTIMATED}.csv", index=False)
 print(pop.head())
